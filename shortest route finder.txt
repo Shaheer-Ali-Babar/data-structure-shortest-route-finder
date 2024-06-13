@@ -1,0 +1,283 @@
+#include <iostream>
+#include <vector>
+#include <unordered_map>
+#include <queue>
+#include <climits>
+#include <algorithm>
+#include <stdexcept>
+using namespace std;
+
+// Class to represent a Vertex (City).
+class Vertex {
+public:
+    string name;
+    vector<pair<Vertex*, int>> neighbors; // Pair of neighbor vertex and edge weight
+    string nearestFuelStation;
+    Vertex(string n, string fuelStation) : name(n), nearestFuelStation(fuelStation) {}
+};
+
+// Class to represent an Edge (Route)
+class Edge {
+public:
+    Vertex* source;
+    Vertex* destination;
+    int weight;
+    Edge(Vertex* src, Vertex* dest, int w) : source(src), destination(dest), weight(w) {}
+};
+
+// Class to represent a Graph (Network of routes)
+class Graph {
+public:
+    unordered_map<string, Vertex*> vertices; // Mapping from city name to Vertex
+
+    // Function to add a new city (Vertex) to the graph
+    void addCity(string cityName, string nearestFuelStation) {
+        if (vertices.find(cityName) == vertices.end()) {
+            Vertex* newCity = new Vertex(cityName, nearestFuelStation);
+            vertices[cityName] = newCity;
+        }
+        else {
+            throw runtime_error("City already exists!");
+        }
+    }
+
+    // Function to add a route (Edge) between two cities (Vertices) in the graph
+    void addRoute(string srcCity, string destCity, int weight) {
+        if (vertices.find(srcCity) != vertices.end() && vertices.find(destCity) != vertices.end()) {
+            Vertex* source = vertices[srcCity];
+            Vertex* destination = vertices[destCity];
+            source->neighbors.push_back(make_pair(destination, weight));
+            // For undirected graph, add the reverse edge as well
+            // destination->neighbors.push_back(make_pair(source, weight));
+        }
+        else {
+            throw runtime_error("One or both cities do not exist!");
+        }
+    }
+
+    // Destructor to free memory allocated for vertices
+    ~Graph() {
+        for (auto& pair : vertices) {
+            delete pair.second;
+        }
+    }
+};
+
+// Function to recursively reconstruct all shortest paths
+void reconstructPaths(const string& current, const string& sourceCity,
+    unordered_map<string, vector<string>>& parent,
+    vector<string>& path, vector<vector<string>>& allPaths) {
+    if (current == sourceCity) {
+        allPaths.push_back(vector<string>(path.rbegin(), path.rend()));
+        return;
+    }
+    for (const auto& p : parent[current]) {
+        path.push_back(p);
+        reconstructPaths(p, sourceCity, parent, path, allPaths);
+        path.pop_back();
+    }
+}
+
+// Function to find the shortest route between two cities using Dijkstra's algorithm
+vector<vector<string>> shortestRoutes(Graph& graph, string sourceCity, string destinationCity) {
+    unordered_map<string, int> distance; // Mapping from city name to shortest distance
+    unordered_map<string, vector<string>> parent; // Mapping from city name to parent cities in shortest path
+    priority_queue<pair<int, string>, vector<pair<int, string>>, greater<pair<int, string>>> pq; // Min heap for Dijkstra's algorithm
+
+    if (graph.vertices.find(sourceCity) == graph.vertices.end() || graph.vertices.find(destinationCity) == graph.vertices.end()) {
+        throw runtime_error("Source or destination city does not exist!");
+    }
+
+    // Initialize distances and parent pointers
+    for (auto& pair : graph.vertices) {
+        distance[pair.first] = (pair.first == sourceCity) ? 0 : INT_MAX;
+    }
+
+    // Set distance of source city to 0 and push it into priority queue
+    pq.push(make_pair(0, sourceCity));
+
+    // Dijkstra's algorithm
+    while (!pq.empty()) {
+        string u = pq.top().second;
+        int distU = pq.top().first;
+        pq.pop();
+
+        for (auto& neighbor : graph.vertices[u]->neighbors) {
+            string v = neighbor.first->name;
+            int weight = neighbor.second;
+            if (distU + weight < distance[v]) {
+                distance[v] = distU + weight;
+                parent[v] = { u };
+                pq.push(make_pair(distance[v], v));
+            }
+            else if (distU + weight == distance[v]) {
+                parent[v].push_back(u);
+            }
+        }
+    }
+
+    // Reconstruct the shortest paths
+    vector<vector<string>> shortestPaths;
+    vector<string> path;
+    path.push_back(destinationCity);
+    reconstructPaths(destinationCity, sourceCity, parent, path, shortestPaths);
+    return shortestPaths;
+}
+
+// Function to calculate the distance between two cities based on the edges in the graph
+int distanceBetweenCities(Graph& graph, string city1, string city2) {
+    if (graph.vertices.find(city1) == graph.vertices.end() || graph.vertices.find(city2) == graph.vertices.end()) {
+        throw runtime_error("One or both cities do not exist!");
+    }
+
+    Vertex* vertex1 = graph.vertices[city1];
+    for (auto& neighbor : vertex1->neighbors) {
+        if (neighbor.first->name == city2) {
+            return neighbor.second; // Return the weight of the edge (distance)
+        }
+    }
+    throw runtime_error("No direct route between the cities!");
+}
+
+// Function to display menu options
+void displayMenu() {
+    cout << "\n1. Find Shortest Route\n";
+    cout << "2. Exit\n";
+}
+
+// Function to calculate total fuel cost
+double calculateFuelCost(int distance, string fuelType) {
+    const double petrolPrice = 289.3;
+    const double dieselPrice = 300.0;
+    const double lpgPrice = 177.0;
+
+    double costPerLitre = 0.0;
+    if (fuelType == "petrol") {
+        costPerLitre = petrolPrice;
+    }
+    else if (fuelType == "diesel") {
+        costPerLitre = dieselPrice;
+    }
+    else if (fuelType == "lpg") {
+        costPerLitre = lpgPrice;
+    }
+    else {
+        throw invalid_argument("Invalid fuel type!");
+    }
+
+    return (distance / 10.0) * costPerLitre; // Assuming 10 km per litre fuel consumption
+}
+
+int main() {
+    cout << "\n** Welcome to Shortest Route Finder **\n";
+    // Create an instance of the Graph
+    Graph network;
+
+    try {
+        // Add cities and their nearest fuel stations
+        network.addCity("Karachi", "PSO Clifton");
+        network.addCity("Lahore", "Shell DHA");
+        network.addCity("Islamabad", "Total F-7");
+        network.addCity("Multan", "Attock Cantt");
+        network.addCity("Peshawar", "PSO University Road");
+        network.addCity("Quetta", "Shell Jinnah Road");
+        network.addCity("Faisalabad", "Total Sargodha Road");
+        network.addCity("Naran", "PSO Naran Bazaar");
+        network.addCity("Gilgit", "Attock Airport Road");
+        network.addCity("Swat", "Shell Mingora");
+
+        // Add routes
+        network.addRoute("Karachi", "Lahore", 1294);
+        network.addRoute("Karachi", "Islamabad", 1407);
+        network.addRoute("Karachi", "Multan", 532);
+        network.addRoute("Karachi", "Peshawar", 1385);
+        network.addRoute("Karachi", "Quetta", 713);
+        network.addRoute("Karachi", "Faisalabad", 1156);
+        network.addRoute("Lahore", "Islamabad", 375);
+        network.addRoute("Lahore", "Multan", 347);
+        network.addRoute("Islamabad", "Peshawar", 153);
+        network.addRoute("Peshawar", "Quetta", 1165);
+        network.addRoute("Multan", "Faisalabad", 345);
+        network.addRoute("Peshawar", "Naran", 334);
+        network.addRoute("Naran", "Gilgit", 242);
+        network.addRoute("Gilgit", "Swat", 396);
+
+        // Additional connections to increase network connectivity
+        network.addRoute("Lahore", "Faisalabad", 135);
+        network.addRoute("Multan", "Quetta", 831);
+        network.addRoute("Faisalabad", "Islamabad", 325);
+        network.addRoute("Peshawar", "Islamabad", 175);
+        network.addRoute("Peshawar", "Lahore", 480);
+        network.addRoute("Peshawar", "Karachi", 1385);
+        network.addRoute("Quetta", "Islamabad", 725);
+        network.addRoute("Quetta", "Lahore", 880);
+        network.addRoute("Quetta", "Multan", 1170);
+        network.addRoute("Gilgit", "Faisalabad", 630);
+        network.addRoute("Naran", "Islamabad", 270);
+        network.addRoute("Swat", "Islamabad", 290);
+
+        int choice;
+        do {
+            displayMenu();
+            cout << "\nEnter your choice: ";
+            if (!(cin >> choice)) {
+                throw invalid_argument("Invalid input! Please enter a number.");
+            }
+
+            switch (choice) {
+            case 1: {
+                string sourceCity, destinationCity, fuelType;
+                cout << "\nAvailable Cities:\n\n";
+                for (auto& pair : network.vertices) {
+                    cout << pair.first << endl;
+                }
+
+                cout << "\nEnter source city: ";
+                cin >> sourceCity;
+                cout << "Enter destination city: ";
+                cin >> destinationCity;
+                cout << "Enter fuel type (petrol/diesel/lpg): ";
+                cin >> fuelType;
+
+                // Find shortest routes
+                vector<vector<string>> shortestPaths = shortestRoutes(network, sourceCity, destinationCity);
+
+                // Display shortest routes
+                cout << "\nShortest route(s) from " << sourceCity << " to " << destinationCity << ":\n";
+                if (shortestPaths.empty()) {
+                    cout << "No route found!\n";
+                }
+                else {
+                    int routeNum = 1;
+                    for (const auto& path : shortestPaths) {
+                        cout << "Route " << routeNum++ << ": ";
+                        int totalDistance = 0;
+                        for (size_t i = 0; i < path.size() - 1; ++i) {
+                            cout << path[i] << " -> ";
+                            // Accumulate the distance between consecutive cities
+                            totalDistance += distanceBetweenCities(network, path[i], path[i + 1]);
+                        }
+                        cout << path.back() << " (Distance: " << totalDistance << " km)\n";
+                        cout << "Nearest Fuel Station in " << sourceCity << ": " << network.vertices[sourceCity]->nearestFuelStation << "\n";
+                        cout << "Nearest Fuel Station in " << destinationCity << ": " << network.vertices[destinationCity]->nearestFuelStation << "\n";
+                        cout << "Total Fuel Cost (" << fuelType << "): " << calculateFuelCost(totalDistance, fuelType) << " Rupees\n";
+                    }
+                }
+                break;
+            }
+            case 2: {
+                cout << "Exiting...\n";
+                break;
+            }
+            default:
+                cout << "\nInvalid choice! Please try again.\n";
+            }
+        } while (choice != 2);
+    }
+    catch (const exception& e) {
+        cout << "Error: " << e.what() << endl;
+    }
+
+
+    return 0;
+}
